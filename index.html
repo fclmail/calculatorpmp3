@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Flash Loan Arbitrage Profit Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.6.2/dist/ethers.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #012b0d; /* Dark green background */
+      color: #eee;
+      padding: 20px;
+    }
+    input, button {
+      padding: 10px;
+      width: 100%;
+      margin: 10px 0;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+    }
+    input {
+      background: #033d19;
+      color: #fff;
+    }
+    button {
+      background-color: #0f0;
+      color: #000;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    h2, .section {
+      margin-top: 20px;
+      color: #00ffcc;
+    }
+    .bold {
+      font-weight: bold;
+      color: #0f0;
+    }
+    .log {
+      white-space: pre-wrap;
+      background: #001a0a;
+      padding: 15px;
+      border-radius: 10px;
+      font-size: 15px;
+      margin-top: 10px;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h2>⚙️ Flash Loan Arbitrage Profit Analyzer</h2>
+
+  <button onclick="connectWallet()">🔗 Connect MetaMask</button>
+
+  <input id="contractAddress" placeholder="Contract address" onfocus="this.placeholder=''" />
+  <input id="txHash" placeholder="Flash loan TX hash" onfocus="this.placeholder=''" />
+  <button onclick="analyzeTx()">✅ Analyze Profit</button>
+
+  <div class="log" id="output">🧪 Awaiting wallet connection...</div>
+
+  <script>
+    let provider, signer, walletAddress;
+
+    const trackedTokens = [
+      { symbol: 'USDCe', address: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', decimals: 6 },
+      { symbol: 'DAI',   address: '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063', decimals: 18 },
+      { symbol: 'WETH',  address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619', decimals: 18 },
+      { symbol: 'AAVE',  address: '0xD6DF932A45C0f255f85145f286eA0b292B21C90B', decimals: 18 }
+    ];
+
+    const erc20ABI = [
+      "function balanceOf(address owner) view returns (uint256)"
+    ];
+
+    async function connectWallet() {
+      if (!window.ethereum) {
+        alert("MetaMask not found");
+        return;
+      }
+      try {
+        provider = new ethers.BrowserProvider(window.ethereum);
+        signer = await provider.getSigner();
+        walletAddress = await signer.getAddress();
+        document.getElementById("output").innerText = `✅ Wallet connected: ${walletAddress}`;
+      } catch (error) {
+        document.getElementById("output").innerText = "❌ Failed to connect MetaMask: " + error.message;
+      }
+    }
+
+    async function analyzeTx() {
+      const contractAddr = document.getElementById('contractAddress').value.trim();
+      const txHash = document.getElementById('txHash').value.trim();
+      const out = document.getElementById('output');
+
+      if (!provider || !signer) {
+        out.innerText = "❌ Connect your wallet first.";
+        return;
+      }
+
+      if (!ethers.isAddress(contractAddr) || !txHash.startsWith('0x') || txHash.length !== 66) {
+        out.innerText = '❌ Enter valid contract address and transaction hash.';
+        return;
+      }
+
+      try {
+        const tx = await provider.getTransaction(txHash);
+        const receipt = await provider.getTransactionReceipt(txHash);
+        const blockNum = receipt.blockNumber;
+        const block = await provider.getBlock(blockNum);
+        const blockBefore = blockNum - 1;
+        const timeStr = new Date(block.timestamp * 1000).toLocaleString();
+
+        let report = `📦 Transaction Hash:\n${txHash}\n\n` +
+                     `🕒 Block Number: ${blockNum}\n` +
+                     `⏱ Timestamp: ${timeStr}\n` +
+                     `🏦 Profit Contract: ${contractAddr}\n\n` +
+                     `📊 Token-wise Profit Summary:\n`;
+
+        for (const token of trackedTokens) {
+          const tokenContract = new ethers.Contract(token.address, erc20ABI, provider);
+          const before = await tokenContract.balanceOf(contractAddr, { blockTag: blockBefore });
+          const after  = await tokenContract.balanceOf(contractAddr, { blockTag: blockNum });
+          const diffRaw = after - before;
+          const profit = diffRaw / (10 ** token.decimals);
+          report += `💸 ${token.symbol}: ${profit >= 0 ? '✅' : '❌'} ${profit.toFixed(6)} ${token.symbol}\n`;
+        }
+
+        out.innerText = report;
+
+      } catch (err) {
+        out.innerText = '❌ Error: ' + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
